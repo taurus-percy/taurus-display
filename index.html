@@ -17,12 +17,11 @@
   const SLIDES = [
     { title: "2027 BUDGET",   url: "https://tauruscommercial.sharepoint.com/sites/TaurusTeam/_layouts/15/Doc.aspx?sourcedoc={0d67257c-a92e-45af-bd92-4889e1094794}&action=embedview&wdAllowInteractivity=False&ActiveCell='TV%20Dashboard'!B8&wdHideGridlines=True&wdHideHeaders=True&wdInConfigurator=True&wdInConfigurator=True" },
     { title: "CURRENT A/R REPORT",   url: "https://tauruscommercial.sharepoint.com/sites/TaurusTeam/_layouts/15/Doc.aspx?sourcedoc={f092a603-5828-4053-a12f-07243f59a77b}&action=embedview&wdAllowInteractivity=False&wdHideGridlines=True&wdHideHeaders=True&wdInConfigurator=True&wdInConfigurator=True" },
-    { title: "Chart three title", url: "PASTE_EMBED_URL_3" },
   ];
 
   const SECONDS_PER_SLIDE = 30;  // how long each chart stays up
   const REFRESH_MINUTES   = 3;   // how often each chart re-pulls from SharePoint
-  const DAILY_RELOAD_HOUR = 4;   // full page reload at 4 a.m. keeps the browser healthy
+  const DAILY_RELOAD_HOUR = 4;   // every chart gets a fresh load at 4 a.m.
   const SHOW_FOOTER       = true;// title, position dots, and clock along the bottom
 </script>
 
@@ -78,6 +77,12 @@ body.no-footer #bar, body.no-footer #progress { display: none; }
 #setup ol { margin: 18px 0 0 1.2em; }
 #setup li { margin-bottom: 10px; }
 #setup code { background: var(--ink-2); padding: 2px 8px; border-radius: 4px; color: var(--brass); }
+#fsprompt {
+  position: fixed; top: 24px; right: 24px; z-index: 5;
+  padding: 12px 20px; border-radius: 999px;
+  background: var(--ink); color: var(--sand); font-size: 22px; font-weight: 500;
+}
+body.is-full #fsprompt, body.setup #fsprompt { display: none; }
 @media (prefers-reduced-motion: reduce) { #stage iframe { transition: none; } }
 </style>
 </head>
@@ -85,6 +90,8 @@ body.no-footer #bar, body.no-footer #progress { display: none; }
   <div id="stage"></div>
   <div id="progress"></div>
   <div id="bar"><div id="title"></div><div id="dots"></div><div id="clock"></div></div>
+
+  <div id="fsprompt">Press OK on the remote for full screen</div>
 
   <div id="setup">
     <h1>Add your chart links to finish setup</h1>
@@ -101,6 +108,7 @@ body.no-footer #bar, body.no-footer #progress { display: none; }
 (function () {
   const slides = SLIDES.filter(s => /^https:\/\//i.test(s.url));
   if (!slides.length) {
+    document.body.classList.add("setup");
     document.getElementById("setup").style.display = "block";
     document.getElementById("stage").style.display = "none";
     document.getElementById("bar").style.display = "none";
@@ -115,7 +123,6 @@ body.no-footer #bar, body.no-footer #progress { display: none; }
   const bar   = document.getElementById("progress");
   const slotMs    = SECONDS_PER_SLIDE * 1000;
   const refreshMs = REFRESH_MINUTES * 60000;
-  const startedAt = Date.now();
 
   // Load every chart up front and keep them stacked, so switching is instant.
   const frames = slides.map(s => {
@@ -138,6 +145,24 @@ body.no-footer #bar, body.no-footer #progress { display: none; }
   }
 
   let current = -1;
+  let lastDaily = new Date().toDateString();
+
+  // Full screen: browsers only allow it after a button press, so any key on
+  // the remote (or a click) switches it on.
+  function goFull() {
+    if (document.fullscreenElement || document.webkitFullscreenElement) return;
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req) { try { req.call(el); } catch (e) {} }
+  }
+  function markFull() {
+    const on = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    document.body.classList.toggle("is-full", on);
+  }
+  document.addEventListener("keydown", goFull);
+  document.addEventListener("click", goFull);
+  document.addEventListener("fullscreenchange", markFull);
+  document.addEventListener("webkitfullscreenchange", markFull);
   function tick() {
     const now = Date.now();
     // Both TVs compute the slide from the wall clock, so they stay in step
@@ -163,9 +188,12 @@ body.no-footer #bar, body.no-footer #progress { display: none; }
       });
     }
 
-    // Once a day, reload the whole page to clear browser memory.
-    if (new Date().getHours() === DAILY_RELOAD_HOUR && now - startedAt > 3600000) {
-      location.reload();
+    // Once a day, give every chart a fresh load. The page itself stays put,
+    // so the browser doesn't drop out of full screen.
+    const today = new Date().toDateString();
+    if (new Date().getHours() === DAILY_RELOAD_HOUR && lastDaily !== today) {
+      lastDaily = today;
+      frames.forEach((_, i) => reload(i));
     }
   }
   tick();
